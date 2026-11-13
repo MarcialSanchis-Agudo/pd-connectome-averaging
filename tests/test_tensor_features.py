@@ -44,7 +44,8 @@ def test_identical_samples_have_no_defect():
 def test_md_defect_is_zero_by_linearity():
     rng = np.random.default_rng(1)
     T = np.array([tensor(*np.sort(rng.uniform(0.2, 2, 3))[::-1], rot(rng.normal(size=3))) for _ in range(100)])
-    assert abs(edge_features(T, rng.uniform(0.1, 1, 100))["defect_md"]) < 1e-12
+    S = [t[None] for t in T]  # 100 one-sample streamlines with weights
+    assert abs(edge_features(S, rng.uniform(0.1, 1, 100))["defect_md"]) < 1e-12
 
 
 def test_orientation_spread_lowers_fa_of_mean():
@@ -56,3 +57,51 @@ def test_orientation_spread_lowers_fa_of_mean():
     assert f["defect_fa"] > 0.3           # but FA of the mean is much lower
     assert np.isclose(f["dispersion"], 0.5)
     assert 0 < f["q_loss"] < 1
+
+
+def test_westin_shapes_sum_to_one():
+    rng = np.random.default_rng(3)
+    for _ in range(20):
+        l = np.sort(rng.uniform(0.1, 2, 3))[::-1]
+        i = invariants(tensor(*l, rot(rng.normal(size=3))))
+        assert np.isclose(i["cl"] + i["cp"] + i["cs"], 1)
+
+
+def test_variance_decomposition_and_streamline_weighting():
+    rng = np.random.default_rng(4)
+    S = [np.array([tensor(*np.sort(rng.uniform(0.2, 2, 3))[::-1]) for _ in range(n)]) for n in (5, 12, 30)]
+    wk = np.array([0.2, 0.5, 0.3])
+    f = edge_features(S, wk)
+    for m in ["fa", "md", "cp"]:
+        assert np.isclose(f[f"sd_{m}"] ** 2, f[f"sd_within_{m}"] ** 2 + f[f"sd_between_{m}"] ** 2)
+    # mean = streamline means averaged with streamline weights (tck2connectome convention)
+    sm = np.array([invariants(s)["fa"].mean() for s in S])
+    assert np.isclose(f["mean_fa"], wk @ sm)
+    assert f["n_streamlines"] == 3 and f["n_samples"] == 47
+
+
+def test_alignment_with_tangent():
+    pts = np.c_[np.linspace(0, 10, 20), np.zeros(20), np.zeros(20)]   # straight line along x
+    along = np.repeat(tensor(1.7, 0.3, 0.3)[None], 20, axis=0)          # fibre along x
+    across = np.repeat(tensor(1.7, 0.3, 0.3, rot([0, 0, np.pi / 2]))[None], 20, axis=0)
+    assert np.isclose(edge_features([along], points=[pts])["align_mean"], 1)
+    assert edge_features([across], points=[pts])["align_mean"] < 1e-12
+
+
+def test_curvature_alone_creates_defect_but_keeps_alignment():
+    # tensors follow a curved tract perfectly: FA defect and dispersion appear,
+    # alignment with the tangent stays 1 -> geometry, not microstructure
+    th = np.linspace(0, np.pi / 2, 40)
+    pts = np.c_[np.cos(th), np.sin(th), np.zeros_like(th)] * 10
+    T = []
+    for t in tangents_of(pts):
+        a = np.cross([1, 0, 0], t); ang = np.arccos(np.clip(t[0], -1, 1))
+        T.append(tensor(1.7, 0.3, 0.3, rot(a / np.linalg.norm(a) * ang if np.linalg.norm(a) > 0 else [0, 0, 0])))
+    f = edge_features([np.array(T)], points=[pts])
+    assert f["defect_fa"] > 0.05 and f["dispersion"] > 0.05
+    assert f["align_mean"] > 0.999
+
+
+def tangents_of(p):
+    from pdconn.tensor_features import tangents
+    return tangents(p)
