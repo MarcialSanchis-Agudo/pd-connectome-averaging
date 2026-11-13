@@ -1,0 +1,12 @@
+# No subject data in this repository (PPMI data use agreement).
+data/
+*.csv
+*.nii
+*.nii.gz
+*.mif
+*.tck
+*.npz
+results/*.json
+__pycache__/
+*.pyc
+.pytest_cache/
