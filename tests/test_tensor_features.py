@@ -105,3 +105,20 @@ def test_curvature_alone_creates_defect_but_keeps_alignment():
 def tangents_of(p):
     from pdconn.tensor_features import tangents
     return tangents(p)
+
+
+def test_trim_removes_endpoint_contamination():
+    core = tensor(1.7, 0.3, 0.3)
+    end = 3.0 * np.eye(3) * 1e0  # CSF-like isotropic tensor at both ends
+    s = np.array([end, end] + [core] * 20 + [end, end])
+    assert edge_features([s])["sd_md"] > 0.1
+    f = edge_features([s], trim=2)
+    assert f["sd_md"] < 1e-12 and f["n_samples"] == 20
+
+
+def test_isotropic_samples_do_not_drive_dispersion():
+    a = np.repeat(tensor(1.7, 0.3, 0.3)[None], 10, axis=0)
+    iso = np.array([np.eye(3) + 1e-6 * np.diag([3, 2, 1]) @ rot([i, 1, 2]) for i in range(10)])
+    iso = (iso + iso.transpose(0, 2, 1)) / 2
+    assert edge_features([np.concatenate([a, iso])])["dispersion"] < 1e-3
+    assert edge_features([np.concatenate([a, iso])], weight_by_linearity=False)["dispersion"] > 0.1

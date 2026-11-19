@@ -21,6 +21,13 @@ Caveats that matter for interpretation
   direction vs streamline tangent) to separate microstructure from geometry.
 - Spread estimates depend on the number of samples and streamlines; compare
   groups with n_streamlines / n_samples as covariates.
+- Streamline ends sit in grey matter / near CSF, where tensors differ for
+  partial-volume reasons. Use `trim` to drop samples near both ends.
+- The principal direction is ill-defined in near-isotropic or planar voxels;
+  `dispersion` and `align_*` are weighted by linearity cl when
+  `weight_by_linearity=True` (default).
+- The sign of defect_fa for heterogeneous, parallel tensors was checked only in
+  simulation (scripts/fa_gap_sources.py), not proved.
 """
 import numpy as np
 
@@ -54,13 +61,16 @@ def _deviatoric_norm(D):
     return np.linalg.norm(D - tr * np.eye(3), axis=(-2, -1))
 
 
-def edge_features(streamlines, weights=None, points=None):
+def edge_features(streamlines, weights=None, points=None, trim=0, weight_by_linearity=True):
     """Features for one edge.
 
     streamlines : list of arrays (n_k, 3, 3), tensors along streamline k.
                   A single (N, 3, 3) array is treated as one streamline.
     weights     : per-streamline weights (default 1).
     points      : optional list of (n_k, 3) coordinates for tangent alignment.
+    trim        : number of samples dropped at each end of every streamline
+                  (streamlines shorter than 2*trim+1 samples are skipped).
+    weight_by_linearity : weight directional features by Westin cl.
 
     Returns, for each invariant m in INV:
       mean_m        weighted mean (what mean-based connectomes store; streamline
@@ -79,8 +89,19 @@ def edge_features(streamlines, weights=None, points=None):
     if isinstance(streamlines, np.ndarray) and streamlines.ndim == 3:
         streamlines = [streamlines]
     S = [np.asarray(s, float) for s in streamlines]
+    wk = np.ones(len(S)) if weights is None else np.asarray(weights, float)
+    P = None if points is None else [np.asarray(p, float) for p in points]
+    if P is not None:
+        P = [tangents(p) for p in P]  # tangents before trimming keep the ends' geometry right
+    if trim > 0:
+        keep = [k for k, s in enumerate(S) if len(s) > 2 * trim]
+        S = [S[k][trim:-trim] for k in keep]
+        wk = wk[keep]
+        if P is not None:
+            P = [P[k][trim:-trim] for k in keep]
+    if not S:
+        raise ValueError("no streamline left after trimming")
     K = len(S)
-    wk = np.ones(K) if weights is None else np.asarray(weights, float)
     wk = wk / wk.sum()
     T = np.concatenate(S)
     w = np.concatenate([np.full(len(s), wk[k] / len(s)) for k, s in enumerate(S)])
@@ -101,11 +122,13 @@ def edge_features(streamlines, weights=None, points=None):
         out[f"sd_between_{m}"] = np.sqrt(between)
         out[f"defect_{m}"] = mu - float(inv_bar[m])
     v = principal_direction(T)
-    out["dispersion"] = float(1 - np.linalg.eigvalsh(np.einsum("i,ij,ik->jk", w, v, v))[-1])
+    wd = w * inv["cl"] if weight_by_linearity else w
+    wd = wd / wd.sum()
+    out["dispersion"] = float(1 - np.linalg.eigvalsh(np.einsum("i,ij,ik->jk", wd, v, v))[-1])
     out["q_loss"] = float(1 - _deviatoric_norm(np.einsum("i,ijk->jk", w, T)) / (w @ _deviatoric_norm(T)))
-    if points is not None:
-        tg = np.concatenate([tangents(p) for p in points])
+    if P is not None:
+        tg = np.concatenate(P)
         c = np.abs(np.einsum("ij,ij->i", v, tg))
-        out["align_mean"] = float(w @ c)
-        out["align_sd"] = float(np.sqrt(w @ (c - w @ c) ** 2))
+        out["align_mean"] = float(wd @ c)
+        out["align_sd"] = float(np.sqrt(wd @ (c - wd @ c) ** 2))
     return out

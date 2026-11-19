@@ -30,8 +30,9 @@ def load_matrix(root, subject, metric="sc", filtering="sift"):
 def nonempty_nodes(W):
     """Indices of nodes with at least one nonzero connection.
 
-    With AAL3 (170 labels) some labels are empty by design (35, 36, 81, 82,
-    1-indexed) and a few small nuclei may be missed per subject.
+    The two example subjects have 170 nodes, consistent with AAL3 (labels 35,
+    36, 81, 82 are empty there); the atlas is not confirmed. A few small
+    nuclei may also be missed per subject.
     """
     return np.where(W.sum(1) > 0)[0]
 

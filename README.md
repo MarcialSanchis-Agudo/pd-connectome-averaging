@@ -50,7 +50,7 @@ python scripts/make_figures.py --root DATA
 
 These are statements about the data structure, not about PD.
 
-1. **MD is redundant.** On every edge, MD = (AD + 2 RD)/3 to median relative
+1. **MD is redundant (as expected from linearity).** On every edge, MD = (AD + 2 RD)/3 to median relative
    error 3e-4 (99th percentile 0.7-1.3 %). The five weightings carry at most
    four independent families (count + three tensor quantities).
 2. **FA is not a function of mean AD and RD, but the gap is mostly tensor
@@ -128,6 +128,27 @@ Plan: pilot (~20 labelled subjects) to fix definitions and the analysis
 (pre-registered), then the full cohort with the same statistics and
 classifiers as the Frontiers paper (TFNBS, BY correction, SVM/GNN), mean vs
 beyond-mean features.
+
+## Not done yet / known limitations
+
+- **No sampling pipeline yet.** Nothing here reads .tck files. Planned route
+  (MRtrix3, untested on her data): `tck2connectome -out_assignments` for edge
+  membership, then `tcksample` on the six tensor components (or FA/MD/AD/RD)
+  for a random subset of streamlines per edge (e.g. at most 200), saving
+  coordinates for tangents. Sampling every point of every streamline is not
+  feasible: about 10^7 streamlines x 100 points x 6 values is tens of GB per
+  subject.
+- **Partial volume at the ends.** Streamline ends lie in grey matter or near
+  CSF; `edge_features(..., trim=k)` drops k samples at each end. The right k
+  has to be chosen on the pilot (before looking at labels).
+- **Noise.** PPMI is single-shell b = 1000, 64 directions. Spread along a
+  streamline may be dominated by noise and interpolation. The pilot must check
+  this first (e.g. spread vs SNR, test-retest if available) before any group
+  comparison.
+- **Free water.** Free-water imaging is an established PD marker (e.g. in the
+  substantia nigra) and is the isotropic part of the same tensor split; any
+  isotropic feature here must be compared against it.
+- **TDA figures** use `--keep high` for RD/MD; results differ with `--keep low`.
 
 ## Status of claims (13 Nov)
 
